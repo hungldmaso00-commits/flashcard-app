@@ -1,0 +1,6 @@
+streamlit
+pandas
+pypinyin
+gtts
+psycopg2-binary
+sqlalchemy
