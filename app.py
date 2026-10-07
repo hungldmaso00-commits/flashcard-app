@@ -10,9 +10,6 @@ import urllib.parse
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-# ==========================================
-# 0. THƯ VIỆN OPTIONAL
-# ==========================================
 try:
     from pypinyin import pinyin, Style
     HAS_PINYIN = True
@@ -34,170 +31,193 @@ except Exception:
     _chaizi = None
 
 
-# ==========================================
-# 1. CẤU HÌNH TRANG
-# ==========================================
-st.set_page_config(page_title="Flashcard Pro", page_icon="🎴", layout="centered")
+st.set_page_config(
+    page_title="Flashcard Pro",
+    page_icon="🎴",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
 
 
-# ==========================================
-# 2. CSS
-# ==========================================
 st.markdown("""
 <link rel="apple-touch-icon" href="https://em-content.zobj.net/source/apple/391/books_1f4da.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#6366f1">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-html, body, [class*="css"] { font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 17px !important; }
-h1 { font-size: 2.6rem !important; font-weight: 800 !important; }
-h2 { font-size: 1.9rem !important; font-weight: 700 !important; }
-h3 { font-size: 1.4rem !important; font-weight: 600 !important; }
-.stTextInput input, .stTextArea textarea, .stSelectbox select {
-    font-size: 17px !important; padding: 12px 14px !important;
-    border-radius: 10px !important; transition: all 0.25s ease !important;
+html, body, [class*="css"] {
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-size: 17px;
 }
-.stTextInput input:focus, .stTextArea textarea:focus {
-    transform: translateY(-1px); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35) !important;
+h1 { font-size: 2.6rem; font-weight: 800; }
+h2 { font-size: 1.9rem; font-weight: 700; }
+h3 { font-size: 1.4rem; font-weight: 600; }
+.stTextInput input, .stTextArea textarea, .stSelectbox select {
+    font-size: 17px;
+    padding: 12px 14px;
+    border-radius: 10px;
 }
 .stTextInput label, .stTextArea label, .stSelectbox label {
-    font-size: 16px !important; font-weight: 600 !important; color: #cbd5e1 !important;
+    font-size: 16px;
+    font-weight: 600;
+    color: #cbd5e1;
 }
 .stButton > button {
-    font-size: 16px !important; font-weight: 600 !important;
-    padding: 12px 20px !important; border-radius: 12px !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 12px 20px;
+    border-radius: 12px;
 }
-.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4) !important; }
 section[data-testid="stSidebar"] {
-    width: 320px !important;
-    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%) !important;
+    width: 320px;
+    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
     border-right: 1px solid rgba(148, 163, 184, 0.15);
 }
-section[data-testid="stSidebar"] * { font-size: 17px !important; }
+section[data-testid="stSidebar"] * { font-size: 17px; }
 section[data-testid="stSidebar"] h2 {
-    font-size: 1.4rem !important;
+    font-size: 1.4rem;
     background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399, #a78bfa);
-    background-size: 200% 100%; -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent; background-clip: text;
-    animation: shimmer 3s ease-in-out infinite;
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
-@keyframes shimmer { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
 section[data-testid="stSidebar"] [role="radiogroup"] label {
-    padding: 12px 14px !important; border-radius: 10px !important;
-    transition: all 0.2s ease !important; cursor: pointer !important; margin-bottom: 4px !important;
-}
-section[data-testid="stSidebar"] [role="radiogroup"] label:hover {
-    background: rgba(99, 102, 241, 0.15) !important; transform: translateX(4px);
+    padding: 12px 14px;
+    border-radius: 10px;
+    margin-bottom: 4px;
 }
 .stApp {
     background: linear-gradient(-45deg, #0a0a14, #131b2e, #0f172a, #1a0f2e, #0a0a14);
-    background-size: 400% 400%; animation: gradientShift 20s ease infinite;
+    background-size: 400% 400%;
 }
-@keyframes gradientShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
-.stApp::before {
-    content: ''; position: fixed; top: -50%; left: -50%; width: 200%; height: 200%;
-    background:
-        radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.15), transparent 40%),
-        radial-gradient(circle at 80% 70%, rgba(236, 72, 153, 0.12), transparent 40%),
-        radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.08), transparent 50%);
-    animation: auroraMove 25s linear infinite; pointer-events: none; z-index: 0;
-}
-@keyframes auroraMove { 0%{transform:rotate(0) scale(1)} 50%{transform:rotate(180deg) scale(1.1)} 100%{transform:rotate(360deg) scale(1)} }
 .main .block-container { position: relative; z-index: 1; }
 div[data-testid="stExpander"] {
-    border: 1px solid rgba(148, 163, 184, 0.2) !important; border-radius: 12px !important;
-    transition: all 0.3s ease !important; background: rgba(30, 41, 59, 0.5) !important;
-    backdrop-filter: blur(10px); margin-bottom: 10px !important;
-}
-div[data-testid="stExpander"]:hover {
-    border-color: rgba(99, 102, 241, 0.5) !important; transform: translateY(-2px);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    background: rgba(30, 41, 59, 0.5);
+    margin-bottom: 10px;
 }
 div[data-testid="stMetric"] {
-    background: rgba(30, 41, 59, 0.6) !important;
-    border: 1px solid rgba(148, 163, 184, 0.2) !important;
-    border-radius: 12px !important; padding: 16px !important; transition: all 0.3s ease !important;
-}
-div[data-testid="stMetric"]:hover {
-    transform: translateY(-3px); border-color: rgba(99, 102, 241, 0.6) !important;
-    box-shadow: 0 12px 28px rgba(99, 102, 241, 0.25);
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    padding: 16px;
 }
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    font-size: 2rem !important; font-weight: 700 !important;
+    font-size: 2rem;
+    font-weight: 700;
     background: linear-gradient(90deg, #a78bfa, #60a5fa);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 .flashcard-word {
-    text-align: center; color: #60a5fa; font-size: 3.5rem; font-weight: 800;
-    text-shadow: 0 0 30px rgba(96, 165, 250, 0.5);
-    animation: pulseWord 3s ease-in-out infinite; margin: 20px 0;
-}
-@keyframes pulseWord {
-    0%,100%{transform:scale(1);text-shadow:0 0 30px rgba(96,165,250,0.5)}
-    50%{transform:scale(1.03);text-shadow:0 0 50px rgba(96,165,250,0.8)}
+    text-align: center;
+    color: #60a5fa;
+    font-size: 3.5rem;
+    font-weight: 800;
+    margin: 20px 0;
 }
 .practice-word {
-    text-align: center; color: #34d399; font-size: 2.5rem; font-weight: 800;
-    text-shadow: 0 0 30px rgba(52, 211, 153, 0.5); margin: 20px 0;
+    text-align: center;
+    color: #34d399;
+    font-size: 2.5rem;
+    font-weight: 800;
+    margin: 20px 0;
 }
 .wotd-card {
-    padding: 20px; border-radius: 16px;
+    padding: 20px;
+    border-radius: 16px;
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.15));
     border: 1px solid rgba(99, 102, 241, 0.3);
-    text-align: center; margin: 15px 0;
+    text-align: center;
+    margin: 15px 0;
 }
 .wotd-word {
-    font-size: 2.2rem; font-weight: 800;
+    font-size: 2.2rem;
+    font-weight: 800;
     background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     margin-bottom: 8px;
 }
 .streak-fire {
-    font-size: 2rem; text-align: center; padding: 10px;
+    font-size: 2rem;
+    text-align: center;
+    padding: 10px;
     background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(249, 115, 22, 0.2));
-    border-radius: 12px; border: 1px solid rgba(249, 115, 22, 0.3);
-    animation: pulseFire 2s ease-in-out infinite;
+    border-radius: 12px;
+    border: 1px solid rgba(249, 115, 22, 0.3);
 }
-@keyframes pulseFire { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 div[data-testid="stAlert"] {
-    border-radius: 12px !important; border-left-width: 5px !important;
-    animation: slideIn 0.4s ease-out; font-size: 17px !important;
+    border-radius: 12px;
+    border-left-width: 5px;
+    font-size: 17px;
 }
-@keyframes slideIn { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
-[data-testid="stHeader"] { background: rgba(10, 10, 20, 0.6) !important; backdrop-filter: blur(8px); }
+[data-testid="stHeader"] {
+    background: rgba(10, 10, 20, 0.6);
+}
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: rgba(30, 41, 59, 0.5); }
-::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #6366f1, #8b5cf6); border-radius: 10px; }
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #6366f1, #8b5cf6);
+    border-radius: 10px;
+}
 h1:first-of-type {
     background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399, #a78bfa);
-    background-size: 300% 100%; -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent; background-clip: text;
-    animation: titleFlow 6s linear infinite;
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
-@keyframes titleFlow { 0%{background-position:0% 50%} 100%{background-position:300% 50%} }
 @media (max-width: 768px) {
-    [data-testid="stHeader"] { display: none !important; }
-    .main .block-container { padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important; }
-    html, body, [class*="css"] { font-size: 16px !important; }
-    h1 { font-size: 1.8rem !important; }
-    h2 { font-size: 1.5rem !important; }
-    .flashcard-word { font-size: 3rem !important; }
-    .practice-word { font-size: 2rem !important; }
-    .stButton > button { min-height: 48px !important; font-size: 15px !important; }
-    section[data-testid="stSidebar"] { width: 85vw !important; }
-    [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
+    [data-testid="stHeader"] {
+        background: rgba(10, 10, 20, 0.95);
+        height: 52px;
+    }
+    [data-testid="stHeader"] button {
+        min-width: 46px;
+        min-height: 46px;
+        font-size: 22px;
+        color: #60a5fa;
+    }
+    section[data-testid="stSidebar"] {
+        width: 82vw;
+        min-width: 82vw;
+    }
+    .main .block-container {
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+        padding-top: 0.5rem;
+        max-width: 100%;
+    }
+    html, body, [class*="css"] { font-size: 16px; }
+    h1 { font-size: 1.6rem; }
+    h2 { font-size: 1.3rem; }
+    h3 { font-size: 1.1rem; }
+    .flashcard-word { font-size: 2.8rem; }
+    .practice-word { font-size: 1.9rem; }
+    .stButton > button {
+        min-height: 50px;
+        font-size: 15px;
+    }
+    .stTextInput input, .stTextArea textarea, .stSelectbox select {
+        min-height: 48px;
+        font-size: 16px;
+    }
+    [data-testid="column"] { min-width: 0; }
     section[data-testid="stSidebar"] [role="radiogroup"] label {
-        font-size: 18px !important; padding: 16px 18px !important; min-height: 56px !important;
+        font-size: 17px;
+        padding: 14px 16px;
+        min-height: 52px;
     }
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 3. BỘ THỦ KANGXI
-# ==========================================
 RADICALS = {
     '一':'nhất','丨':'cổn','丶':'chủ','丿':'phiệt','乙':'ất','亅':'quyết',
     '二':'nhị','亠':'đầu','人':'nhân','亻':'nhân','儿':'nhi','入':'nhập',
@@ -349,9 +369,6 @@ POS_ABBR = {
 }
 
 
-# ==========================================
-# 4. DATABASE
-# ==========================================
 DB_URL = st.secrets.get("DATABASE_URL", os.environ.get("DATABASE_URL", ""))
 
 
@@ -377,9 +394,8 @@ class SafeCursor:
         return getattr(self._cur, name)
 
 
-@st.cache_resource(show_spinner="🔌 Đang kết nối database...")
+@st.cache_resource(show_spinner=False)
 def _setup_db():
-    """Chạy 1 LẦN DUY NHẤT cho cả app — cache lại connection"""
     if DB_URL:
         from sqlalchemy import create_engine
         DB_URL_SAFE = DB_URL.replace("postgresql://", "postgresql+psycopg://")
@@ -401,7 +417,6 @@ def _setup_db():
 
 @st.cache_resource(show_spinner=False)
 def _run_migrations():
-    """Chạy migration 1 LẦN DUY NHẤT"""
     _engine, _conn, _c = _setup_db()
     if DB_URL:
         _c.execute('''CREATE TABLE IF NOT EXISTS flashcards (
@@ -413,10 +428,8 @@ def _run_migrations():
             repetitions INTEGER DEFAULT 0, created_at DATE DEFAULT CURRENT_DATE,
             synonyms TEXT)''')
         _conn.commit()
-
         for col, ddl in [
-            ("pos", "TEXT"),
-            ("related_words", "TEXT"),
+            ("pos", "TEXT"), ("related_words", "TEXT"),
             ("ease_factor", "REAL DEFAULT 2.5"),
             ("interval_days", "INTEGER DEFAULT 0"),
             ("repetitions", "INTEGER DEFAULT 0"),
@@ -428,53 +441,12 @@ def _run_migrations():
                 _conn.commit()
             except Exception:
                 _conn.rollback()
-
         _c.execute('''CREATE TABLE IF NOT EXISTS study_history (
             study_date TEXT PRIMARY KEY,
             reviews_count INTEGER DEFAULT 0)''')
         _conn.commit()
-    return True
-
-
-# Khởi tạo — chỉ chạy 1 lần
-engine, conn, c = _setup_db()
-_run_migrations()
-
-
-def init_db():
-    if DB_URL:
-        c.execute('''CREATE TABLE IF NOT EXISTS flashcards (
-            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            word TEXT, language TEXT, pronunciation TEXT, meaning TEXT,
-            example TEXT, level INTEGER DEFAULT 0,
-            next_review DATE DEFAULT CURRENT_DATE, pos TEXT, related_words TEXT,
-            ease_factor REAL DEFAULT 2.5, interval_days INTEGER DEFAULT 0,
-            repetitions INTEGER DEFAULT 0, created_at DATE DEFAULT CURRENT_DATE,
-            synonyms TEXT)''')
-        conn.commit()
-
-        cols_to_add = [
-            ("pos", "TEXT"),
-            ("related_words", "TEXT"),
-            ("ease_factor", "REAL DEFAULT 2.5"),
-            ("interval_days", "INTEGER DEFAULT 0"),
-            ("repetitions", "INTEGER DEFAULT 0"),
-            ("created_at", "DATE DEFAULT CURRENT_DATE"),
-            ("synonyms", "TEXT"),
-        ]
-        for col, ddl in cols_to_add:
-            try:
-                c.execute(f"ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS {col} {ddl}")
-                conn.commit()
-            except Exception:
-                conn.rollback()
-
-        c.execute('''CREATE TABLE IF NOT EXISTS study_history (
-            study_date TEXT PRIMARY KEY,
-            reviews_count INTEGER DEFAULT 0)''')
-        conn.commit()
     else:
-        c.execute('''CREATE TABLE IF NOT EXISTS flashcards (
+        _c.execute('''CREATE TABLE IF NOT EXISTS flashcards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             word TEXT, language TEXT, pronunciation TEXT, meaning TEXT,
             example TEXT, level INTEGER DEFAULT 0, next_review DATE,
@@ -485,23 +457,20 @@ def init_db():
             ("ease_factor","REAL DEFAULT 2.5"),("interval_days","INTEGER DEFAULT 0"),
             ("repetitions","INTEGER DEFAULT 0"),("created_at","DATE"),("synonyms","TEXT")]:
             try:
-                c.execute(f"ALTER TABLE flashcards ADD COLUMN {col} {ddl}")
+                _c.execute(f"ALTER TABLE flashcards ADD COLUMN {col} {ddl}")
             except Exception:
                 pass
-
-        c.execute('''CREATE TABLE IF NOT EXISTS study_history (
+        _c.execute('''CREATE TABLE IF NOT EXISTS study_history (
             study_date TEXT PRIMARY KEY,
             reviews_count INTEGER DEFAULT 0)''')
-
-        conn.commit()
-
-
-init_db()
+        _conn.commit()
+    return True
 
 
-# ==========================================
-# CACHE — TỐI ƯU LOAD
-# ==========================================
+engine, conn, c = _setup_db()
+_run_migrations()
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def get_all_words_cached():
     if engine:
@@ -562,9 +531,6 @@ def invalidate_cache():
     get_stats_cached.clear()
 
 
-# ==========================================
-# 5. HÀM XỬ LÝ
-# ==========================================
 def is_chinese(text):
     return any('\u4e00' <= ch <= '\u9fff' for ch in text)
 
@@ -688,9 +654,6 @@ def make_tts(text, lang):
         return None
 
 
-# ==========================================
-# 6. STREAK
-# ==========================================
 def log_review():
     today = datetime.now().date().isoformat()
     c.execute("SELECT reviews_count FROM study_history WHERE study_date = ?", (today,))
@@ -715,9 +678,6 @@ def get_word_of_day(df):
     return df.iloc[idx]
 
 
-# ==========================================
-# 7. CRUD
-# ==========================================
 def add_word(word, language, pronunciation, meaning, example, pos, related_words, synonyms=""):
     today = datetime.now().date().isoformat()
     c.execute('''INSERT INTO flashcards
@@ -765,9 +725,6 @@ def update_review_sm2(word_id, quality, ease, interval, reps):
     log_review()
 
 
-# ==========================================
-# 8. UI
-# ==========================================
 st.title("📚 Flashcard Pro — Anh & Trung")
 
 if 'show_answer' not in st.session_state:
@@ -806,9 +763,6 @@ with st.sidebar:
     st.caption("💡 Mẹo: Ôn tập mỗi ngày để không quên nhé!")
 
 
-# ==========================================
-# TRANG: THÊM TỪ MỚI
-# ==========================================
 if choice == "➕ Thêm từ mới":
     st.header("✨ Thêm từ vựng mới")
 
@@ -914,9 +868,8 @@ if choice == "➕ Thêm từ mới":
     st.markdown("---")
 
     with st.expander("📥 Nhập hàng loạt từ file CSV"):
-        st.markdown("**Định dạng file CSV** — dòng đầu là tiêu đề, các cột theo thứ tự: `word, language, pronunciation, meaning, example, pos`")
-        st.markdown("**Ví dụ:**")
-        st.code("word,language,pronunciation,meaning,example,pos\nhello,Tiếng Anh,həˈloʊ,xin chào,Hello world!,Thán từ (interj)\n你好,Tiếng Trung,nǐ hǎo,Xin chào,你好吗？,Chào hỏi", language="csv")
+        st.markdown("Định dạng file CSV — dòng đầu là tiêu đề, các cột theo thứ tự: word, language, pronunciation, meaning, example, pos")
+        st.code("word,language,pronunciation,meaning,example,pos\nhello,Tiếng Anh,həˈloʊ,xin chào,Hello world!,Thán từ (interj)\n你好,Tiếng Trung,nǐ hǎo,Xin chào,你好吗?,Chào hỏi", language="csv")
 
         uploaded = st.file_uploader("Chọn file CSV", type=['csv'])
         if uploaded is not None:
@@ -952,9 +905,6 @@ if choice == "➕ Thêm từ mới":
                           file_name="flashcard_template.csv", mime="text/csv")
 
 
-# ==========================================
-# TRANG: ÔN TẬP
-# ==========================================
 elif choice == "🧠 Ôn tập Flashcard":
     st.header("🧠 Ôn tập hàng ngày")
 
@@ -1054,9 +1004,6 @@ elif choice == "🧠 Ôn tập Flashcard":
         st.success("Tuyệt vời! Bạn đã hoàn thành toàn bộ bài học hôm nay. 🎉")
 
 
-# ==========================================
-# TRANG: LUYỆN TẬP
-# ==========================================
 elif choice == "🎮 Luyện tập":
     st.header("🎮 Luyện tập")
     df = get_all_words()
@@ -1220,9 +1167,6 @@ elif choice == "🎮 Luyện tập":
         st.rerun()
 
 
-# ==========================================
-# TRANG: KHO TỪ VỰNG
-# ==========================================
 elif choice == "🗂️ Kho từ vựng":
     st.header("🗂️ Kho từ vựng của bạn")
     df = get_all_words()
@@ -1279,9 +1223,6 @@ elif choice == "🗂️ Kho từ vựng":
                                 st.audio(audio_bytes, format='audio/mp3')
 
 
-# ==========================================
-# TRANG: THỐNG KÊ
-# ==========================================
 elif choice == "📊 Thống kê":
     st.header("📊 Thống kê học tập")
     df = get_all_words()
