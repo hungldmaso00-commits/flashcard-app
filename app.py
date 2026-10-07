@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import io
 import os
+import time
 import random
 from datetime import datetime, timedelta
 import urllib.request
@@ -218,6 +219,37 @@ h1:first-of-type {
 """, unsafe_allow_html=True)
 
 
+ARPABET_TO_IPA = {
+    'AA': 'ɑː', 'AE': 'æ', 'AH': 'ʌ', 'AO': 'ɔː', 'AW': 'aʊ', 'AY': 'aɪ',
+    'B': 'b', 'CH': 'tʃ', 'D': 'd', 'DH': 'ð', 'EH': 'e', 'ER': 'ɜːr',
+    'EY': 'eɪ', 'F': 'f', 'G': 'ɡ', 'HH': 'h', 'IH': 'ɪ', 'IY': 'iː',
+    'JH': 'dʒ', 'K': 'k', 'L': 'l', 'M': 'm', 'N': 'n', 'NG': 'ŋ',
+    'OW': 'oʊ', 'OY': 'ɔɪ', 'P': 'p', 'R': 'r', 'S': 's', 'SH': 'ʃ',
+    'T': 't', 'TH': 'θ', 'UH': 'ʊ', 'UW': 'uː', 'V': 'v', 'W': 'w',
+    'Y': 'j', 'Z': 'z', 'ZH': 'ʒ',
+}
+
+STRESS_MAP = {'0': '', '1': 'ˈ', '2': 'ˌ'}
+
+
+def arpabet_to_ipa(arpabet):
+    if not arpabet:
+        return ""
+    tokens = arpabet.split()
+    parts = []
+    for token in tokens:
+        if not token:
+            continue
+        stress = ""
+        if token[-1].isdigit():
+            stress = STRESS_MAP.get(token[-1], "")
+            token = token[:-1]
+        ipa = ARPABET_TO_IPA.get(token.upper(), "")
+        if ipa:
+            parts.append(stress + ipa)
+    return "".join(parts)
+
+
 RADICALS = {
     '一':'nhất','丨':'cổn','丶':'chủ','丿':'phiệt','乙':'ất','亅':'quyết',
     '二':'nhị','亠':'đầu','人':'nhân','亻':'nhân','儿':'nhi','入':'nhập',
@@ -357,15 +389,16 @@ def format_radical_info(zh_text):
 
 
 POS_MAP = {
-    'noun':'Danh từ (n)','verb':'Động từ (v)','adjective':'Tính từ (adj)',
-    'adverb':'Trạng từ (adv)','preposition':'Giới từ (prep)',
-    'conjunction':'Liên từ (conj)','interjection':'Thán từ (interj)',
-    'pronoun':'Đại từ (pron)','determiner':'Hạn định từ (det)','numeral':'Số từ (num)',
+    'n': 'Danh từ (n)', 'v': 'Động từ (v)', 'adj': 'Tính từ (adj)',
+    'adv': 'Trạng từ (adv)', 'u': '',
 }
 
-POS_ABBR = {
-    'n': 'Danh từ (n)', 'v': 'Động từ (v)', 'adj': 'Tính từ (adj)',
-    'adv': 'Trạng từ (adv)',
+POS_MAP_FULL = {
+    'noun': 'Danh từ (n)', 'verb': 'Động từ (v)', 'adjective': 'Tính từ (adj)',
+    'adverb': 'Trạng từ (adv)', 'preposition': 'Giới từ (prep)',
+    'conjunction': 'Liên từ (conj)', 'interjection': 'Thán từ (interj)',
+    'pronoun': 'Đại từ (pron)', 'determiner': 'Hạn định từ (det)',
+    'numeral': 'Số từ (num)',
 }
 
 
@@ -471,7 +504,7 @@ engine, conn, c = _setup_db()
 _run_migrations()
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_all_words_cached():
     if engine:
         df = pd.read_sql_query("SELECT * FROM flashcards ORDER BY id DESC", engine)
@@ -483,7 +516,7 @@ def get_all_words_cached():
     return df
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_stats_cached():
     today_iso = datetime.now().date().isoformat()
     try:
@@ -496,7 +529,7 @@ def get_stats_cached():
         return {'total': 0, 'due': 0}
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_streak_cached():
     try:
         c.execute("SELECT study_date FROM study_history ORDER BY study_date DESC")
@@ -535,102 +568,94 @@ def is_chinese(text):
     return any('\u4e00' <= ch <= '\u9fff' for ch in text)
 
 
-def translate_text(text, target_lang='vi'):
+@st.cache_data(ttl=86400, show_spinner=False)
+def translate_cached(text, target_lang='vi'):
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=8) as response:
             res = json.loads(response.read().decode('utf-8'))
-            return "".join([item[0] for item in res[0] if item[0]])
+            result = "".join([item[0] for item in res[0] if item[0]])
+            return result if result else None
     except Exception:
         return None
 
 
-def get_synonyms(word, max_n=5):
+def translate_text(text, target_lang='vi'):
+    return translate_cached(text, target_lang)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def check_english_info_cached(word):
+    clean_word = word.strip().lower()
+    suggestion = None
+    ipa = ""
+    pos_str = ""
+    related_str = ""
+
+    try:
+        url = f"https://api.datamuse.com/words?sp={urllib.parse.quote(clean_word)}&md=pdrs&max=1"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data:
+                entry = data[0]
+                if entry.get('word', '').lower() == clean_word:
+                    if entry.get('pron'):
+                        ipa = arpabet_to_ipa(entry['pron'])
+
+                    pos_list = []
+                    for tag in entry.get('tags', []):
+                        if tag in POS_MAP and POS_MAP[tag]:
+                            if POS_MAP[tag] not in pos_list:
+                                pos_list.append(POS_MAP[tag])
+                    pos_str = ", ".join(pos_list)
+
+                    defs = entry.get('defs', [])
+                    rel_lines = []
+                    for d in defs[:3]:
+                        if '\t' in d:
+                            pos_code, definition = d.split('\t', 1)
+                            pos_vn = POS_MAP.get(pos_code.strip(), pos_code.strip())
+                            prefix = f"[{pos_vn}] " if pos_vn else ""
+                            rel_lines.append(f"• {prefix}{definition}")
+                        else:
+                            rel_lines.append(f"• {d}")
+                    related_str = "\n".join(rel_lines)
+    except Exception:
+        pass
+
+    try:
+        url2 = f"https://api.datamuse.com/sug?s={urllib.parse.quote(clean_word)}&max=1"
+        req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req2, timeout=6) as resp2:
+            res2 = json.loads(resp2.read().decode('utf-8'))
+            if res2 and res2[0]['word'].lower() != clean_word:
+                suggestion = res2[0]['word']
+    except Exception:
+        pass
+
+    return suggestion, ipa, pos_str, related_str, ""
+
+
+def check_english_info(word):
+    return check_english_info_cached(word)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_synonyms_cached(word, max_n=6):
     try:
         url = f"https://api.datamuse.com/words?rel_syn={urllib.parse.quote(word)}&max={max_n}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=4) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             res = json.loads(resp.read().decode('utf-8'))
             return [item['word'] for item in res]
     except Exception:
         return []
 
 
-def check_english_info(word):
-    clean_word = word.strip().lower()
-    suggestion, ipa, pos_str, related_str = None, "", "", ""
-    example_sentence = ""
-
-    def fetch_sug():
-        try:
-            url = f"https://api.datamuse.com/sug?s={urllib.parse.quote(clean_word)}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                res = json.loads(resp.read().decode('utf-8'))
-                if res and res[0]['word'].lower() != clean_word:
-                    return res[0]['word']
-        except Exception:
-            pass
-        return None
-
-    def fetch_pos_datamuse():
-        try:
-            url = f"https://api.datamuse.com/words?sp={urllib.parse.quote(clean_word)}&md=p&max=1"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                res = json.loads(resp.read().decode('utf-8'))
-                if res and 'tags' in res[0]:
-                    pos_list = []
-                    for tag in res[0]['tags']:
-                        if tag in POS_ABBR and POS_ABBR[tag]:
-                            if POS_ABBR[tag] not in pos_list:
-                                pos_list.append(POS_ABBR[tag])
-                    return ", ".join(pos_list)
-        except Exception:
-            pass
-        return ""
-
-    def fetch_dict():
-        _ipa, _pos_list, _rel, _example = "", [], [], ""
-        try:
-            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{urllib.parse.quote(clean_word)}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                res = json.loads(resp.read().decode('utf-8'))
-                if isinstance(res, list) and res:
-                    entry = res[0]
-                    if entry.get('phonetic'):
-                        _ipa = entry['phonetic'].strip('/')
-                    elif entry.get('phonetics'):
-                        for p in entry['phonetics']:
-                            if p.get('text'):
-                                _ipa = p['text'].strip('/')
-                                break
-                    for m in entry.get('meanings', []):
-                        p_raw = m.get('partOfSpeech', '')
-                        p_vn = POS_MAP.get(p_raw, p_raw.capitalize())
-                        if p_vn and p_vn not in _pos_list:
-                            _pos_list.append(p_vn)
-                        defs = m.get('definitions', [])
-                        if defs and defs[0].get('definition'):
-                            _rel.append(f"• [{p_vn}]: {defs[0]['definition']}")
-                            if not _example and defs[0].get('example'):
-                                _example = defs[0]['example']
-        except Exception:
-            pass
-        return _ipa, ", ".join(_pos_list), "\n".join(_rel[:3]), _example
-
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        f1 = ex.submit(fetch_sug)
-        f2 = ex.submit(fetch_dict)
-        f3 = ex.submit(fetch_pos_datamuse)
-        suggestion = f1.result()
-        ipa, pos_str, related_str, example_sentence = f2.result()
-        if not pos_str:
-            pos_str = f3.result()
-
-    return suggestion, ipa, pos_str, related_str, example_sentence
+def get_synonyms(word, max_n=6):
+    return get_synonyms_cached(word, max_n)
 
 
 def generate_pinyin(zh_text):
@@ -730,6 +755,22 @@ st.title("📚 Flashcard Pro — Anh & Trung")
 if 'show_answer' not in st.session_state:
     st.session_state.show_answer = False
 
+for _k in ['auto_meaning', 'auto_pronun', 'auto_pos', 'auto_related',
+           'auto_example', 'auto_synonyms', 'suggestion', 'word_input']:
+    if _k not in st.session_state:
+        st.session_state[_k] = "" if _k != 'suggestion' else None
+
+
+def _clear_auto_fields():
+    st.session_state.auto_meaning = ""
+    st.session_state.auto_pronun = ""
+    st.session_state.auto_pos = ""
+    st.session_state.auto_related = ""
+    st.session_state.auto_example = ""
+    st.session_state.auto_synonyms = ""
+    st.session_state.suggestion = None
+
+
 with st.sidebar:
     st.markdown("## 🎯 MENU CHÍNH")
     menu = ["➕ Thêm từ mới", "🧠 Ôn tập Flashcard", "🎮 Luyện tập",
@@ -760,25 +801,34 @@ with st.sidebar:
         st.metric("📚 Tổng", stats['total'])
 
     st.markdown("---")
+
+    if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
+        invalidate_cache()
+        get_streak_cached.clear()
+        st.rerun()
+
     st.caption("💡 Mẹo: Ôn tập mỗi ngày để không quên nhé!")
 
 
 if choice == "➕ Thêm từ mới":
     st.header("✨ Thêm từ vựng mới")
 
-    input_word_val = st.session_state.get('corrected_word', "")
-
     col1, col2 = st.columns([2, 1])
     with col1:
         language = st.selectbox("Ngôn ngữ", ["Tiếng Anh", "Tiếng Trung"])
         word_label = "Từ vựng / Pinyin" if language == "Tiếng Trung" else "Từ vựng (Tiếng Anh)"
-        word = st.text_input(word_label, value=input_word_val,
-            placeholder="Ví dụ: 你好 hoặc ni hao" if language == "Tiếng Trung" else "Ví dụ: candidate")
+        word = st.text_input(
+            word_label,
+            key="word_input",
+            on_change=_clear_auto_fields,
+            placeholder="Ví dụ: 你好 hoặc ni hao" if language == "Tiếng Trung" else "Ví dụ: candidate"
+        )
+
     with col2:
         st.write("##")
         if st.button("⚡ Dịch siêu nhanh", use_container_width=True):
-            if word:
-                st.session_state.corrected_word = word
+            if word and word.strip():
+                _clear_auto_fields()
                 with st.spinner("🔮 Đang phân tích..."):
                     with ThreadPoolExecutor(max_workers=3) as executor:
                         f_trans = executor.submit(translate_text, word, 'vi')
@@ -818,8 +868,8 @@ if choice == "➕ Thêm từ mới":
     if sug_word and language == "Tiếng Anh":
         st.warning(f"💡 Có phải bạn muốn gõ: **{sug_word}**?")
         if st.button(f"👉 Sửa thành '{sug_word}' và dịch lại"):
-            st.session_state.corrected_word = sug_word
-            st.session_state.suggestion = None
+            st.session_state.word_input = sug_word
+            _clear_auto_fields()
             st.rerun()
 
     meaning_default = st.session_state.get('auto_meaning', "")
@@ -830,7 +880,7 @@ if choice == "➕ Thêm từ mới":
     synonyms_default = st.session_state.get('auto_synonyms', "")
 
     pos_label = "Bộ thủ chính / Cấu tạo" if language == "Tiếng Trung" else "Loại từ (Danh từ, Động từ...)"
-    related_label = "Chi tiết cấu tạo chữ Hán" if language == "Tiếng Trung" else "Các dạng từ / Nghĩa chi tiết (Word Family)"
+    related_label = "Chi tiết cấu tạo chữ Hán" if language == "Tiếng Trung" else "Nghĩa chi tiết (từ Datamuse)"
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -859,9 +909,9 @@ if choice == "➕ Thêm từ mới":
         if word and meaning:
             add_word(word, language, pronunciation, meaning, example, pos, related_words, synonyms)
             st.toast(f"💾 Đã lưu từ: {word}", icon="✅")
-            for k in ['auto_meaning','auto_pronun','auto_pos','auto_related',
-                      'suggestion','corrected_word','auto_example','auto_synonyms']:
-                st.session_state[k] = "" if k != 'suggestion' else None
+            _clear_auto_fields()
+            st.session_state.word_input = ""
+            st.rerun()
         else:
             st.error("Vui lòng điền Từ vựng và Nghĩa!")
 
@@ -971,7 +1021,7 @@ elif choice == "🧠 Ôn tập Flashcard":
             if synonyms_val:
                 st.markdown(f"**Từ đồng nghĩa:** {synonyms_val}")
             if related:
-                st.markdown(f"**Chi tiết / Cấu tạo:**\n\n{related}")
+                st.markdown(f"**Chi tiết:**\n\n{related}")
             if example:
                 st.info(f"**Ví dụ:** {example}")
             st.write("---")
