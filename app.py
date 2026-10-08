@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import urllib.request
 import urllib.parse
 import json
-from concurrent.futures import ThreadPoolExecutor
 
 try:
     from pypinyin import pinyin, Style
@@ -31,6 +30,13 @@ except Exception:
     HAS_CHAIZI = False
     _chaizi = None
 
+try:
+    import eng_to_ipa as _ipa_lib
+    HAS_ENG_IPA = True
+except ImportError:
+    HAS_ENG_IPA = False
+    _ipa_lib = None
+
 
 st.set_page_config(
     page_title="Flashcard Pro",
@@ -41,179 +47,84 @@ st.set_page_config(
 
 
 st.markdown("""
-<link rel="apple-touch-icon" href="https://em-content.zobj.net/source/apple/391/books_1f4da.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#6366f1">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-html, body, [class*="css"] {
-    font-family: 'Inter', 'Segoe UI', sans-serif;
-    font-size: 17px;
-}
-h1 { font-size: 2.6rem; font-weight: 800; }
-h2 { font-size: 1.9rem; font-weight: 700; }
-h3 { font-size: 1.4rem; font-weight: 600; }
+html, body, [class*="css"] { font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 17px; }
+h1 { font-size: 2.4rem; font-weight: 800; }
+h2 { font-size: 1.7rem; font-weight: 700; }
 .stTextInput input, .stTextArea textarea, .stSelectbox select {
-    font-size: 17px;
-    padding: 12px 14px;
-    border-radius: 10px;
+    font-size: 17px; padding: 12px 14px; border-radius: 10px;
 }
 .stTextInput label, .stTextArea label, .stSelectbox label {
-    font-size: 16px;
-    font-weight: 600;
-    color: #cbd5e1;
+    font-size: 16px; font-weight: 600; color: #cbd5e1;
 }
 .stButton > button {
-    font-size: 16px;
-    font-weight: 600;
-    padding: 12px 20px;
-    border-radius: 12px;
+    font-size: 16px; font-weight: 600; padding: 12px 20px; border-radius: 12px;
 }
 section[data-testid="stSidebar"] {
     width: 320px;
     background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-    border-right: 1px solid rgba(148, 163, 184, 0.15);
 }
 section[data-testid="stSidebar"] * { font-size: 17px; }
 section[data-testid="stSidebar"] h2 {
     font-size: 1.4rem;
-    background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399, #a78bfa);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
 section[data-testid="stSidebar"] [role="radiogroup"] label {
-    padding: 12px 14px;
-    border-radius: 10px;
-    margin-bottom: 4px;
+    padding: 12px 14px; border-radius: 10px; margin-bottom: 4px;
 }
 .stApp {
     background: linear-gradient(-45deg, #0a0a14, #131b2e, #0f172a, #1a0f2e, #0a0a14);
     background-size: 400% 400%;
 }
-.main .block-container { position: relative; z-index: 1; }
 div[data-testid="stExpander"] {
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: 12px;
-    background: rgba(30, 41, 59, 0.5);
-    margin-bottom: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px;
+    background: rgba(30, 41, 59, 0.5); margin-bottom: 10px;
 }
 div[data-testid="stMetric"] {
-    background: rgba(30, 41, 59, 0.6);
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: 12px;
-    padding: 16px;
+    background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px; padding: 16px;
 }
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    font-size: 2rem;
-    font-weight: 700;
+    font-size: 2rem; font-weight: 700;
     background: linear-gradient(90deg, #a78bfa, #60a5fa);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .flashcard-word {
-    text-align: center;
-    color: #60a5fa;
-    font-size: 3.5rem;
-    font-weight: 800;
-    margin: 20px 0;
+    text-align: center; color: #60a5fa; font-size: 3.5rem; font-weight: 800; margin: 20px 0;
 }
 .practice-word {
-    text-align: center;
-    color: #34d399;
-    font-size: 2.5rem;
-    font-weight: 800;
-    margin: 20px 0;
+    text-align: center; color: #34d399; font-size: 2.5rem; font-weight: 800; margin: 20px 0;
 }
 .wotd-card {
-    padding: 20px;
-    border-radius: 16px;
+    padding: 20px; border-radius: 16px;
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.15));
     border: 1px solid rgba(99, 102, 241, 0.3);
-    text-align: center;
-    margin: 15px 0;
+    text-align: center; margin: 15px 0;
 }
 .wotd-word {
-    font-size: 2.2rem;
-    font-weight: 800;
+    font-size: 2.2rem; font-weight: 800;
     background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     margin-bottom: 8px;
 }
 .streak-fire {
-    font-size: 2rem;
-    text-align: center;
-    padding: 10px;
+    font-size: 2rem; text-align: center; padding: 10px;
     background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(249, 115, 22, 0.2));
-    border-radius: 12px;
-    border: 1px solid rgba(249, 115, 22, 0.3);
+    border-radius: 12px; border: 1px solid rgba(249, 115, 22, 0.3);
 }
-div[data-testid="stAlert"] {
-    border-radius: 12px;
-    border-left-width: 5px;
-    font-size: 17px;
-}
-[data-testid="stHeader"] {
-    background: rgba(10, 10, 20, 0.6);
-}
+[data-testid="stHeader"] { background: rgba(10, 10, 20, 0.6); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: rgba(30, 41, 59, 0.5); }
-::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #6366f1, #8b5cf6);
-    border-radius: 10px;
-}
-h1:first-of-type {
-    background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399, #a78bfa);
-    background-size: 300% 100%;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #6366f1, #8b5cf6); border-radius: 10px; }
 @media (max-width: 768px) {
-    [data-testid="stHeader"] {
-        background: rgba(10, 10, 20, 0.95);
-        height: 52px;
-    }
-    [data-testid="stHeader"] button {
-        min-width: 46px;
-        min-height: 46px;
-        font-size: 22px;
-        color: #60a5fa;
-    }
-    section[data-testid="stSidebar"] {
-        width: 82vw;
-        min-width: 82vw;
-    }
-    .main .block-container {
-        padding-left: 0.8rem;
-        padding-right: 0.8rem;
-        padding-top: 0.5rem;
-        max-width: 100%;
-    }
-    html, body, [class*="css"] { font-size: 16px; }
-    h1 { font-size: 1.6rem; }
-    h2 { font-size: 1.3rem; }
-    h3 { font-size: 1.1rem; }
+    [data-testid="stHeader"] { height: 52px; background: rgba(10, 10, 20, 0.95); }
+    [data-testid="stHeader"] button { min-width: 46px; min-height: 46px; color: #60a5fa; }
+    section[data-testid="stSidebar"] { width: 82vw; min-width: 82vw; }
+    .main .block-container { padding-left: 0.8rem; padding-right: 0.8rem; max-width: 100%; }
     .flashcard-word { font-size: 2.8rem; }
     .practice-word { font-size: 1.9rem; }
-    .stButton > button {
-        min-height: 50px;
-        font-size: 15px;
-    }
-    .stTextInput input, .stTextArea textarea, .stSelectbox select {
-        min-height: 48px;
-        font-size: 16px;
-    }
-    [data-testid="column"] { min-width: 0; }
-    section[data-testid="stSidebar"] [role="radiogroup"] label {
-        font-size: 17px;
-        padding: 14px 16px;
-        min-height: 52px;
-    }
+    .stButton > button { min-height: 50px; }
+    .stTextInput input, .stTextArea textarea, .stSelectbox select { min-height: 48px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -229,11 +140,9 @@ ARPABET_TO_IPA = {
     'Y': 'j', 'Z': 'z', 'ZH': 'ʒ',
 }
 
-STRESS_MAP = {'0': '', '1': 'ˈ', '2': 'ˌ'}
-
 
 def arpabet_to_ipa(arpabet):
-    if not arpabet:
+    if not arpabet or not isinstance(arpabet, str):
         return ""
     tokens = arpabet.split()
     parts = []
@@ -242,7 +151,7 @@ def arpabet_to_ipa(arpabet):
             continue
         stress = ""
         if token[-1].isdigit():
-            stress = STRESS_MAP.get(token[-1], "")
+            stress = {'0': '', '1': 'ˈ', '2': 'ˌ'}.get(token[-1], '')
             token = token[:-1]
         ipa = ARPABET_TO_IPA.get(token.upper(), "")
         if ipa:
@@ -389,17 +298,22 @@ def format_radical_info(zh_text):
 
 
 POS_MAP = {
-    'n': 'Danh từ (n)', 'v': 'Động từ (v)', 'adj': 'Tính từ (adj)',
-    'adv': 'Trạng từ (adv)', 'u': '',
+    'n': 'Danh từ', 'v': 'Động từ', 'adj': 'Tính từ',
+    'adv': 'Trạng từ', 'u': '',
 }
 
-POS_MAP_FULL = {
-    'noun': 'Danh từ (n)', 'verb': 'Động từ (v)', 'adjective': 'Tính từ (adj)',
-    'adverb': 'Trạng từ (adv)', 'preposition': 'Giới từ (prep)',
-    'conjunction': 'Liên từ (conj)', 'interjection': 'Thán từ (interj)',
-    'pronoun': 'Đại từ (pron)', 'determiner': 'Hạn định từ (det)',
-    'numeral': 'Số từ (num)',
-}
+
+def is_chinese(text):
+    return any('\u4e00' <= ch <= '\u9fff' for ch in text)
+
+
+def generate_pinyin(zh_text):
+    if not HAS_PINYIN:
+        return ""
+    try:
+        return " ".join([item[0] for item in pinyin(zh_text, style=Style.TONE)])
+    except Exception:
+        return ""
 
 
 DB_URL = st.secrets.get("DATABASE_URL", os.environ.get("DATABASE_URL", ""))
@@ -432,13 +346,8 @@ def _setup_db():
     if DB_URL:
         from sqlalchemy import create_engine
         DB_URL_SAFE = DB_URL.replace("postgresql://", "postgresql+psycopg://")
-        _engine = create_engine(
-            DB_URL_SAFE,
-            pool_pre_ping=True,
-            pool_size=2,
-            max_overflow=3,
-            pool_recycle=300,
-        )
+        _engine = create_engine(DB_URL_SAFE, pool_pre_ping=True,
+                                pool_size=2, max_overflow=3, pool_recycle=300)
         _conn = _engine.raw_connection()
         _c = SafeCursor(_conn.cursor(), is_postgres=True)
     else:
@@ -461,22 +370,17 @@ def _run_migrations():
             repetitions INTEGER DEFAULT 0, created_at DATE DEFAULT CURRENT_DATE,
             synonyms TEXT)''')
         _conn.commit()
-        for col, ddl in [
-            ("pos", "TEXT"), ("related_words", "TEXT"),
-            ("ease_factor", "REAL DEFAULT 2.5"),
-            ("interval_days", "INTEGER DEFAULT 0"),
-            ("repetitions", "INTEGER DEFAULT 0"),
-            ("created_at", "DATE DEFAULT CURRENT_DATE"),
-            ("synonyms", "TEXT"),
-        ]:
+        for col, ddl in [("pos","TEXT"),("related_words","TEXT"),
+            ("ease_factor","REAL DEFAULT 2.5"),("interval_days","INTEGER DEFAULT 0"),
+            ("repetitions","INTEGER DEFAULT 0"),("created_at","DATE DEFAULT CURRENT_DATE"),
+            ("synonyms","TEXT")]:
             try:
                 _c.execute(f"ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS {col} {ddl}")
                 _conn.commit()
             except Exception:
                 _conn.rollback()
         _c.execute('''CREATE TABLE IF NOT EXISTS study_history (
-            study_date TEXT PRIMARY KEY,
-            reviews_count INTEGER DEFAULT 0)''')
+            study_date TEXT PRIMARY KEY, reviews_count INTEGER DEFAULT 0)''')
         _conn.commit()
     else:
         _c.execute('''CREATE TABLE IF NOT EXISTS flashcards (
@@ -494,8 +398,7 @@ def _run_migrations():
             except Exception:
                 pass
         _c.execute('''CREATE TABLE IF NOT EXISTS study_history (
-            study_date TEXT PRIMARY KEY,
-            reviews_count INTEGER DEFAULT 0)''')
+            study_date TEXT PRIMARY KEY, reviews_count INTEGER DEFAULT 0)''')
         _conn.commit()
     return True
 
@@ -549,8 +452,7 @@ def get_streak_cached():
         c.execute("SELECT reviews_count FROM study_history WHERE study_date = ?",
                   (today.isoformat(),))
         r2 = c.fetchone()
-        today_count = r2[0] if r2 else 0
-        return streak, today_count
+        return streak, (r2[0] if r2 else 0)
     except Exception:
         return 0, 0
 
@@ -564,107 +466,158 @@ def invalidate_cache():
     get_stats_cached.clear()
 
 
-def is_chinese(text):
-    return any('\u4e00' <= ch <= '\u9fff' for ch in text)
-
-
+# ==========================================
+# TRANSLATION
+# ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
-def translate_cached(text, target_lang='vi'):
+def _google_translate(text, target='vi'):
     try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={urllib.parse.quote(text)}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            res = json.loads(response.read().decode('utf-8'))
-            result = "".join([item[0] for item in res[0] if item[0]])
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            result = "".join([item[0] for item in data[0] if item[0]])
             return result if result else None
     except Exception:
         return None
 
 
-def translate_text(text, target_lang='vi'):
-    return translate_cached(text, target_lang)
-
-
 @st.cache_data(ttl=86400, show_spinner=False)
-def check_english_info_cached(word):
-    clean_word = word.strip().lower()
-    suggestion = None
-    ipa = ""
-    pos_str = ""
-    related_str = ""
-
+def _mymemory_translate(text, target='vi'):
     try:
-        url = f"https://api.datamuse.com/words?sp={urllib.parse.quote(clean_word)}&md=pdrs&max=1"
+        src = 'en' if target == 'vi' else 'vi'
+        url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(text[:500])}&langpair={src}|{target}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get('responseStatus') == 200:
+                t = data.get('responseData', {}).get('translatedText', '')
+                if t and t.lower().strip() != text.lower().strip():
+                    return t
+    except Exception:
+        pass
+    return None
+
+
+def translate_text(text, target_lang='vi'):
+    if not text or not text.strip():
+        return None
+    result = _google_translate(text, target_lang)
+    if result:
+        return result
+    return _mymemory_translate(text, target_lang)
+
+
+# ==========================================
+# ENGLISH INFO — VERSION 4 (bust cache cũ)
+# ==========================================
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_english_v4(word):
+    clean = word.strip().lower()
+    result = {
+        'suggestion': None,
+        'ipa': '',
+        'pos': '',
+        'defs': '',
+        'synonyms': [],
+    }
+    if not clean:
+        return result
+
+    # ============ TẦNG 1: eng_to_ipa (offline, 0ms) ============
+    if HAS_ENG_IPA:
+        try:
+            ipa = _ipa_lib.convert(clean)
+            if ipa and '*' not in ipa:
+                if not ipa.startswith('/'):
+                    ipa = '/' + ipa + '/'
+                result['ipa'] = ipa
+        except Exception:
+            pass
+
+    # ============ TẦNG 2: Datamuse ============
+    try:
+        url = f"https://api.datamuse.com/words?sp={urllib.parse.quote(clean)}&md=pdrs&max=5"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+
+        entry = None
+        for e in data:
+            if e.get('word', '').lower() == clean:
+                entry = e
+                break
+        if not entry and data:
+            entry = data[0]
+
+        if entry:
+            if not result['ipa']:
+                pron = entry.get('pron')
+                if pron:
+                    result['ipa'] = arpabet_to_ipa(pron)
+
+            pos_list = []
+            for tag in entry.get('tags', []):
+                if tag in POS_MAP and POS_MAP[tag] and POS_MAP[tag] not in pos_list:
+                    pos_list.append(POS_MAP[tag])
+            result['pos'] = ", ".join(pos_list)
+
+            defs_lines = []
+            for d in entry.get('defs', [])[:3]:
+                if '\t' in d:
+                    p_code, definition = d.split('\t', 1)
+                    p_vn = POS_MAP.get(p_code.strip(), p_code.strip())
+                    prefix = f"[{p_vn}] " if p_vn else ""
+                    def_vn = translate_text(definition[:200])
+                    if def_vn:
+                        defs_lines.append(f"• {prefix}{def_vn}")
+                    else:
+                        defs_lines.append(f"• {prefix}{definition}")
+            result['defs'] = "\n".join(defs_lines)
+    except Exception:
+        pass
+
+    # ============ TẦNG 3: dictionaryapi.dev (chỉ khi IPA vẫn trống) ============
+    if not result['ipa']:
+        try:
+            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{urllib.parse.quote(clean)}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            if isinstance(data, list) and data:
+                entry = data[0]
+                if entry.get('phonetic'):
+                    result['ipa'] = entry['phonetic'].strip('/')
+                elif entry.get('phonetics'):
+                    for p in entry['phonetics']:
+                        if p.get('text'):
+                            result['ipa'] = p['text'].strip('/')
+                            break
+        except Exception:
+            pass
+
+    # ============ Synonyms ============
+    try:
+        url = f"https://api.datamuse.com/words?rel_syn={urllib.parse.quote(clean)}&max=8"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode('utf-8'))
-            if data:
-                entry = data[0]
-                if entry.get('word', '').lower() == clean_word:
-                    if entry.get('pron'):
-                        ipa = arpabet_to_ipa(entry['pron'])
-
-                    pos_list = []
-                    for tag in entry.get('tags', []):
-                        if tag in POS_MAP and POS_MAP[tag]:
-                            if POS_MAP[tag] not in pos_list:
-                                pos_list.append(POS_MAP[tag])
-                    pos_str = ", ".join(pos_list)
-
-                    defs = entry.get('defs', [])
-                    rel_lines = []
-                    for d in defs[:3]:
-                        if '\t' in d:
-                            pos_code, definition = d.split('\t', 1)
-                            pos_vn = POS_MAP.get(pos_code.strip(), pos_code.strip())
-                            prefix = f"[{pos_vn}] " if pos_vn else ""
-                            rel_lines.append(f"• {prefix}{definition}")
-                        else:
-                            rel_lines.append(f"• {d}")
-                    related_str = "\n".join(rel_lines)
+        result['synonyms'] = [e['word'] for e in data if 'word' in e]
     except Exception:
         pass
 
+    # ============ Suggestion ============
     try:
-        url2 = f"https://api.datamuse.com/sug?s={urllib.parse.quote(clean_word)}&max=1"
-        req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req2, timeout=6) as resp2:
-            res2 = json.loads(resp2.read().decode('utf-8'))
-            if res2 and res2[0]['word'].lower() != clean_word:
-                suggestion = res2[0]['word']
-    except Exception:
-        pass
-
-    return suggestion, ipa, pos_str, related_str, ""
-
-
-def check_english_info(word):
-    return check_english_info_cached(word)
-
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_synonyms_cached(word, max_n=6):
-    try:
-        url = f"https://api.datamuse.com/words?rel_syn={urllib.parse.quote(word)}&max={max_n}"
+        url = f"https://api.datamuse.com/sug?s={urllib.parse.quote(clean)}&max=1"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            res = json.loads(resp.read().decode('utf-8'))
-            return [item['word'] for item in res]
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+        if data and data[0]['word'].lower() != clean:
+            result['suggestion'] = data[0]['word']
     except Exception:
-        return []
+        pass
 
-
-def get_synonyms(word, max_n=6):
-    return get_synonyms_cached(word, max_n)
-
-
-def generate_pinyin(zh_text):
-    if not HAS_PINYIN:
-        return ""
-    try:
-        return " ".join([item[0] for item in pinyin(zh_text, style=Style.TONE)])
-    except Exception:
-        return ""
+    return result
 
 
 def make_tts(text, lang):
@@ -699,8 +652,7 @@ def get_word_of_day(df):
     today = datetime.now().date().isoformat()
     seed = int(today.replace('-', ''))
     rng = random.Random(seed)
-    idx = rng.randint(0, len(df) - 1)
-    return df.iloc[idx]
+    return df.iloc[rng.randint(0, len(df) - 1)]
 
 
 def add_word(word, language, pronunciation, meaning, example, pos, related_words, synonyms=""):
@@ -729,8 +681,7 @@ def get_due_words():
 
 def update_review_sm2(word_id, quality, ease, interval, reps):
     if quality < 3:
-        reps = 0
-        interval = 1
+        reps, interval = 0, 1
     else:
         if reps == 0:
             interval = 1
@@ -762,12 +713,9 @@ for _k in ['auto_meaning', 'auto_pronun', 'auto_pos', 'auto_related',
 
 
 def _clear_auto_fields():
-    st.session_state.auto_meaning = ""
-    st.session_state.auto_pronun = ""
-    st.session_state.auto_pos = ""
-    st.session_state.auto_related = ""
-    st.session_state.auto_example = ""
-    st.session_state.auto_synonyms = ""
+    for k in ['auto_meaning', 'auto_pronun', 'auto_pos', 'auto_related',
+              'auto_example', 'auto_synonyms']:
+        st.session_state[k] = ""
     st.session_state.suggestion = None
 
 
@@ -784,8 +732,8 @@ with st.sidebar:
         fire = "🔥" * min(streak, 5)
         st.markdown(
             f"<div class='streak-fire'>{fire}<br>"
-            f"<b style='font-size:1.3rem'>{streak} ngày liên tục</b><br>"
-            f"<span style='font-size:0.9rem;color:#cbd5e1'>Hôm nay: {today_count} lượt ôn</span>"
+            f"<b>{streak} ngày liên tục</b><br>"
+            f"<span style='font-size:0.9rem;color:#cbd5e1'>Hôm nay: {today_count} lượt</span>"
             f"</div>", unsafe_allow_html=True
         )
     else:
@@ -821,7 +769,7 @@ if choice == "➕ Thêm từ mới":
             word_label,
             key="word_input",
             on_change=_clear_auto_fields,
-            placeholder="Ví dụ: 你好 hoặc ni hao" if language == "Tiếng Trung" else "Ví dụ: candidate"
+            placeholder="Ví dụ: 你好 hoặc ni hao" if language == "Tiếng Trung" else "Ví dụ: wonderful"
         )
 
     with col2:
@@ -830,36 +778,29 @@ if choice == "➕ Thêm từ mới":
             if word and word.strip():
                 _clear_auto_fields()
                 with st.spinner("🔮 Đang phân tích..."):
-                    with ThreadPoolExecutor(max_workers=3) as executor:
-                        f_trans = executor.submit(translate_text, word, 'vi')
-                        if language == "Tiếng Anh":
-                            f_eng = executor.submit(check_english_info, word)
-                            f_syn = executor.submit(get_synonyms, word, 6)
-                            translated = f_trans.result()
-                            sug, ipa, pos, related, example_auto = f_eng.result()
-                            syns = f_syn.result()
-                            st.session_state.auto_meaning = translated or ""
-                            st.session_state.auto_pronun = ipa
-                            st.session_state.auto_pos = pos
-                            st.session_state.auto_related = related
-                            st.session_state.suggestion = sug
-                            st.session_state.auto_example = example_auto
-                            st.session_state.auto_synonyms = ", ".join(syns)
+                    if language == "Tiếng Anh":
+                        info = fetch_english_v4(word)
+                        meaning_vn = translate_text(word, 'vi')
+                        st.session_state.auto_meaning = meaning_vn or ""
+                        st.session_state.auto_pronun = info['ipa']
+                        st.session_state.auto_pos = info['pos']
+                        st.session_state.auto_related = info['defs']
+                        st.session_state.auto_synonyms = ", ".join(info['synonyms'])
+                        st.session_state.suggestion = info['suggestion']
+                    else:
+                        meaning_vn = translate_text(word, 'vi')
+                        st.session_state.auto_meaning = meaning_vn or ""
+                        st.session_state.suggestion = None
+                        st.session_state.auto_synonyms = ""
+                        if is_chinese(word):
+                            st.session_state.auto_pronun = generate_pinyin(word)
+                            main_rad, detail = format_radical_info(word)
+                            st.session_state.auto_pos = main_rad or "Chữ Hán"
+                            st.session_state.auto_related = detail
                         else:
-                            translated = f_trans.result()
-                            st.session_state.auto_meaning = translated or ""
-                            st.session_state.suggestion = None
-                            st.session_state.auto_synonyms = ""
-                            st.session_state.auto_example = ""
-                            if is_chinese(word):
-                                st.session_state.auto_pronun = generate_pinyin(word)
-                                main_rad, detail = format_radical_info(word)
-                                st.session_state.auto_pos = main_rad or "Chữ Hán"
-                                st.session_state.auto_related = detail
-                            else:
-                                st.session_state.auto_pronun = word
-                                st.session_state.auto_pos = "Nhập bằng Pinyin"
-                                st.session_state.auto_related = ""
+                            st.session_state.auto_pronun = word
+                            st.session_state.auto_pos = "Nhập bằng Pinyin"
+                            st.session_state.auto_related = ""
                 st.toast("✨ Đã phân tích xong!", icon="✅")
             else:
                 st.warning("Hãy nhập từ trước.")
@@ -876,11 +817,10 @@ if choice == "➕ Thêm từ mới":
     pronun_default = st.session_state.get('auto_pronun', "")
     pos_default = st.session_state.get('auto_pos', "")
     related_default = st.session_state.get('auto_related', "")
-    example_default = st.session_state.get('auto_example', "")
     synonyms_default = st.session_state.get('auto_synonyms', "")
 
-    pos_label = "Bộ thủ chính / Cấu tạo" if language == "Tiếng Trung" else "Loại từ (Danh từ, Động từ...)"
-    related_label = "Chi tiết cấu tạo chữ Hán" if language == "Tiếng Trung" else "Nghĩa chi tiết (từ Datamuse)"
+    pos_label = "Bộ thủ / Loại từ" if language == "Tiếng Trung" else "Loại từ"
+    related_label = "Cấu tạo chữ Hán" if language == "Tiếng Trung" else "Định nghĩa chi tiết (đã dịch)"
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -889,14 +829,14 @@ if choice == "➕ Thêm từ mới":
         pos = st.text_input(pos_label, value=pos_default)
 
     meaning = st.text_input("Nghĩa tiếng Việt", value=meaning_default)
-    related_words = st.text_area(related_label, value=related_default, height=80)
+    related_words = st.text_area(related_label, value=related_default, height=100)
 
     if language == "Tiếng Anh":
-        synonyms = st.text_input("Từ đồng nghĩa (tự động từ Datamuse)", value=synonyms_default)
+        synonyms = st.text_input("Từ đồng nghĩa", value=synonyms_default)
     else:
         synonyms = ""
 
-    example = st.text_area("Câu ví dụ", value=example_default, height=80)
+    example = st.text_area("Câu ví dụ (không bắt buộc)", height=80)
 
     if word and HAS_TTS:
         tts_lang = 'en' if language == "Tiếng Anh" else 'zh-CN'
@@ -908,7 +848,7 @@ if choice == "➕ Thêm từ mới":
     if st.button("💾 Lưu từ vựng", use_container_width=True, type="primary"):
         if word and meaning:
             add_word(word, language, pronunciation, meaning, example, pos, related_words, synonyms)
-            st.toast(f"💾 Đã lưu từ: {word}", icon="✅")
+            st.toast(f"💾 Đã lưu: {word}", icon="✅")
             _clear_auto_fields()
             st.session_state.word_input = ""
             st.rerun()
@@ -918,8 +858,8 @@ if choice == "➕ Thêm từ mới":
     st.markdown("---")
 
     with st.expander("📥 Nhập hàng loạt từ file CSV"):
-        st.markdown("Định dạng file CSV — dòng đầu là tiêu đề, các cột theo thứ tự: word, language, pronunciation, meaning, example, pos")
-        st.code("word,language,pronunciation,meaning,example,pos\nhello,Tiếng Anh,həˈloʊ,xin chào,Hello world!,Thán từ (interj)\n你好,Tiếng Trung,nǐ hǎo,Xin chào,你好吗?,Chào hỏi", language="csv")
+        st.markdown("Cột theo thứ tự: `word, language, pronunciation, meaning, example, pos`")
+        st.code("word,language,pronunciation,meaning,example,pos\nhello,Tiếng Anh,həˈloʊ,xin chào,Hello world!,Thán từ", language="csv")
 
         uploaded = st.file_uploader("Chọn file CSV", type=['csv'])
         if uploaded is not None:
@@ -948,9 +888,9 @@ if choice == "➕ Thêm từ mới":
                     st.toast(f"🎉 Đã import {count} từ!", icon="✅")
                     st.rerun()
             except Exception as e:
-                st.error(f"❌ Lỗi đọc file: {e}")
+                st.error(f"❌ Lỗi: {e}")
 
-        template = "word,language,pronunciation,meaning,example,pos\nhello,Tiếng Anh,həˈloʊ,xin chào,Hello world!,Thán từ (interj)\n"
+        template = "word,language,pronunciation,meaning,example,pos\nhello,Tiếng Anh,həˈloʊ,xin chào,Hello world!,Thán từ\n"
         st.download_button("📄 Tải file mẫu CSV", data=template,
                           file_name="flashcard_template.csv", mime="text/csv")
 
@@ -978,8 +918,8 @@ elif choice == "🧠 Ôn tập Flashcard":
         done = max(0, total_all - total_due)
         progress = done / total_all if total_all > 0 else 0
 
-        st.progress(progress, text=f"📊 Tiến độ hôm nay: {done}/{total_all} từ")
-        st.info(f"Còn **{total_due}** từ cần ôn tập!")
+        st.progress(progress, text=f"📊 Tiến độ: {done}/{total_all} từ")
+        st.info(f"Còn **{total_due}** từ cần ôn!")
 
         card = due_words[0]
         word_id, word, lang, pron, meaning, example, level = card[0:7]
@@ -1021,11 +961,11 @@ elif choice == "🧠 Ôn tập Flashcard":
             if synonyms_val:
                 st.markdown(f"**Từ đồng nghĩa:** {synonyms_val}")
             if related:
-                st.markdown(f"**Chi tiết:**\n\n{related}")
+                st.markdown(f"**Định nghĩa chi tiết:**\n\n{related}")
             if example:
                 st.info(f"**Ví dụ:** {example}")
             st.write("---")
-            st.caption(f"📈 Lần ôn: **{reps}** • Interval: **{interval} ngày** • Ease: **{ease:.2f}**")
+            st.caption(f"📈 Lần ôn: **{reps}** • Interval: **{interval}** ngày • Ease: **{ease:.2f}**")
             st.write("Đánh giá mức độ nhớ:")
 
             col1, col2, col3, col4 = st.columns(4)
@@ -1059,21 +999,13 @@ elif choice == "🎮 Luyện tập":
     df = get_all_words()
 
     if len(df) < 4:
-        st.warning("⚠️ Cần ít nhất **4 từ** trong kho để luyện tập. Hãy thêm từ trước!")
+        st.warning("⚠️ Cần ít nhất **4 từ** để luyện tập!")
         st.stop()
 
     for key in ['practice_q', 'practice_answered', 'practice_score', 'practice_total', 'practice_feedback']:
         if key not in st.session_state:
-            if key == 'practice_q':
-                st.session_state[key] = None
-            elif key == 'practice_answered':
-                st.session_state[key] = False
-            elif key == 'practice_score':
-                st.session_state[key] = 0
-            elif key == 'practice_total':
-                st.session_state[key] = 0
-            else:
-                st.session_state[key] = None
+            st.session_state[key] = None if key in ('practice_q', 'practice_feedback') else (
+                False if key == 'practice_answered' else 0)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -1081,8 +1013,8 @@ elif choice == "🎮 Luyện tập":
     with c2:
         st.metric("📊 Tổng câu", st.session_state.practice_total)
 
-    mode = st.radio("Chọn chế độ:",
-        ["⌨️ Gõ từ (Typing)", "🎯 Trắc nghiệm (Quiz)", "🎧 Nghe & gõ (Shadowing)"],
+    mode = st.radio("Chế độ:",
+        ["⌨️ Gõ từ", "🎯 Trắc nghiệm", "🎧 Nghe & gõ"],
         horizontal=True, label_visibility="collapsed")
 
     st.write("---")
@@ -1101,7 +1033,7 @@ elif choice == "🎮 Luyện tập":
     q_pron = q.get('pronunciation') or ""
     tts_lang = 'en' if q_lang == "Tiếng Anh" else 'zh-CN'
 
-    if mode == "⌨️ Gõ từ (Typing)":
+    if mode == "⌨️ Gõ từ":
         st.caption("📝 Nhìn nghĩa → gõ lại từ")
         st.markdown(f"<div class='practice-word'>{q_meaning}</div>", unsafe_allow_html=True)
         if q_pron:
@@ -1133,9 +1065,9 @@ elif choice == "🎮 Luyện tập":
             if st.session_state.practice_feedback == "correct":
                 st.success(f"🎉 Chính xác! Đáp án: **{q_word}**")
             else:
-                st.error(f"❌ Sai rồi. Đáp án đúng: **{q_word}**")
+                st.error(f"❌ Sai rồi. Đáp án: **{q_word}**")
 
-    elif mode == "🎯 Trắc nghiệm (Quiz)":
+    elif mode == "🎯 Trắc nghiệm":
         st.caption("🎯 Nhìn từ → chọn nghĩa đúng")
         st.markdown(f"<div class='practice-word'>{q_word}</div>", unsafe_allow_html=True)
         if q_pron:
@@ -1163,20 +1095,19 @@ elif choice == "🎮 Luyện tập":
             if st.session_state.practice_feedback == "correct":
                 st.success("🎉 Đúng rồi!")
             else:
-                st.error(f"❌ Sai rồi. Đáp án: **{q_meaning}**")
+                st.error(f"❌ Sai. Đáp án: **{q_meaning}**")
             if st.button("➡️ Câu tiếp", use_container_width=True):
                 st.session_state.practice_q = None
                 st.session_state.practice_answered = False
                 st.session_state.practice_feedback = None
                 st.rerun()
 
-    elif mode == "🎧 Nghe & gõ (Shadowing)":
-        st.caption("🎧 Nghe phát âm → gõ lại từ vựng")
+    elif mode == "🎧 Nghe & gõ":
+        st.caption("🎧 Nghe phát âm → gõ lại từ")
         if HAS_TTS:
             audio_bytes = make_tts(q_word, tts_lang)
             if audio_bytes:
                 st.audio(audio_bytes, format='audio/mp3')
-                st.caption("💡 Bấm play để nghe, nghe lại nhiều lần thoải mái")
         st.caption(f"Gợi ý nghĩa: {q_meaning}")
 
         user_ans = st.text_input("Gõ từ bạn nghe được:", key="shadow_input",
@@ -1205,7 +1136,7 @@ elif choice == "🎮 Luyện tập":
             if st.session_state.practice_feedback == "correct":
                 st.success(f"🎉 Chính xác! Đáp án: **{q_word}**")
             else:
-                st.error(f"❌ Sai rồi. Đáp án đúng: **{q_word}**")
+                st.error(f"❌ Sai. Đáp án: **{q_word}**")
 
     st.write("---")
     if st.button("🔄 Reset điểm"):
@@ -1218,7 +1149,7 @@ elif choice == "🎮 Luyện tập":
 
 
 elif choice == "🗂️ Kho từ vựng":
-    st.header("🗂️ Kho từ vựng của bạn")
+    st.header("🗂️ Kho từ vựng")
     df = get_all_words()
 
     if df.empty:
@@ -1249,11 +1180,11 @@ elif choice == "🗂️ Kho từ vựng":
             with st.expander(f"📌 **{row['word']}**{pos_tag} ({row['language']}) — {row['meaning']}"):
                 st.write(f"- **Phiên âm:** {row['pronunciation']}")
                 if pd.notna(row.get('pos')) and row['pos']:
-                    st.write(f"- **Bộ thủ / Loại từ:** {row['pos']}")
+                    st.write(f"- **Loại từ / Bộ thủ:** {row['pos']}")
                 if pd.notna(row.get('synonyms')) and row['synonyms']:
                     st.write(f"- **Từ đồng nghĩa:** {row['synonyms']}")
                 if pd.notna(row.get('related_words')) and row['related_words']:
-                    st.markdown(f"- **Chi tiết:**\n\n{row['related_words']}")
+                    st.markdown(f"- **Định nghĩa:**\n\n{row['related_words']}")
                 if pd.notna(row.get('example')) and row['example']:
                     st.write(f"- **Ví dụ:** {row['example']}")
                 st.write(f"- **Lần ôn:** {row.get('repetitions', 0)} | **Ôn tiếp:** {row['next_review']}")
@@ -1274,17 +1205,17 @@ elif choice == "🗂️ Kho từ vựng":
 
 
 elif choice == "📊 Thống kê":
-    st.header("📊 Thống kê học tập")
+    st.header("📊 Thống kê")
     df = get_all_words()
 
     if df.empty:
-        st.info("Chưa có dữ liệu. Thêm từ để xem thống kê!")
+        st.info("Chưa có dữ liệu.")
     else:
         today = datetime.now().date()
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("📚 Tổng số từ", len(df))
+            st.metric("📚 Tổng", len(df))
         with col2:
             due = len(df[df['next_review'] <= today.isoformat()])
             st.metric("⏰ Đến hạn", due)
@@ -1294,7 +1225,7 @@ elif choice == "📊 Thống kê":
             st.metric("🆕 Tuần này", new_week)
         with col4:
             mastered = len(df[df['level'] >= 5])
-            st.metric("🏆 Đã thuộc (lv≥5)", mastered)
+            st.metric("🏆 Đã thuộc", mastered)
 
         st.markdown("---")
         streak, today_count = get_streak_cached()
@@ -1313,16 +1244,14 @@ elif choice == "📊 Thống kê":
         st.bar_chart(df['language'].value_counts())
 
         st.markdown("---")
-        st.subheader("📅 Từ mới theo ngày (7 ngày gần nhất)")
+        st.subheader("📅 Từ mới 7 ngày gần nhất")
         if 'created_at' in df:
             recent = df[df['created_at'] >= (today - timedelta(days=7)).isoformat()]
             if not recent.empty:
                 st.bar_chart(recent.groupby('created_at').size())
-            else:
-                st.caption("Chưa có từ mới trong tuần này.")
 
         st.markdown("---")
         st.subheader("⬇️ Xuất dữ liệu")
         csv_data = df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Tải xuống CSV", data=csv_data,
+        st.download_button("📥 Tải CSV", data=csv_data,
             file_name=f"flashcards_{today.isoformat()}.csv", mime="text/csv")
