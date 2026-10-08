@@ -467,23 +467,40 @@ def invalidate_cache():
 
 
 # ==========================================
-# TRANSLATION
+# TRANSLATION — 4 tầng fallback
 # ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
-def _google_translate(text, target='vi'):
-    try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={urllib.parse.quote(text)}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            result = "".join([item[0] for item in data[0] if item[0]])
-            return result if result else None
-    except Exception:
+def _google_translate_v2(text, target='vi'):
+    if not text or not text.strip():
         return None
+    q = urllib.parse.quote(text[:500])
+    endpoints = [
+        f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={q}",
+        f"https://translate.google.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={q}",
+        f"https://translate.google.com/translate_a/single?client=webapp&sl=auto&tl={target}&dt=t&q={q}",
+    ]
+    for url in endpoints:
+        try:
+            req = urllib.request.Request(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+            })
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if data and data[0]:
+                    result = "".join([item[0] for item in data[0] if item[0]])
+                    if result:
+                        return result
+        except Exception:
+            continue
+    return None
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def _mymemory_translate(text, target='vi'):
+def _mymemory_translate_v2(text, target='vi'):
+    if not text or not text.strip():
+        return None
     try:
         src = 'en' if target == 'vi' else 'vi'
         url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(text[:500])}&langpair={src}|{target}"
@@ -499,17 +516,39 @@ def _mymemory_translate(text, target='vi'):
     return None
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _lingva_translate(text, target='vi'):
+    if not text or not text.strip():
+        return None
+    try:
+        url = f"https://lingva.ml/api/v1/auto/{target}/{urllib.parse.quote(text[:500])}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get('translation'):
+                return data['translation']
+    except Exception:
+        pass
+    return None
+
+
 def translate_text(text, target_lang='vi'):
     if not text or not text.strip():
         return None
-    result = _google_translate(text, target_lang)
+    result = _google_translate_v2(text, target_lang)
     if result:
         return result
-    return _mymemory_translate(text, target_lang)
+    result = _mymemory_translate_v2(text, target_lang)
+    if result:
+        return result
+    result = _lingva_translate(text, target_lang)
+    if result:
+        return result
+    return None
 
 
 # ==========================================
-# ENGLISH INFO — VERSION 4 (bust cache cũ)
+# ENGLISH INFO — V4
 # ==========================================
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_english_v4(word):
@@ -524,7 +563,6 @@ def fetch_english_v4(word):
     if not clean:
         return result
 
-    # ============ TẦNG 1: eng_to_ipa (offline, 0ms) ============
     if HAS_ENG_IPA:
         try:
             ipa = _ipa_lib.convert(clean)
@@ -535,7 +573,6 @@ def fetch_english_v4(word):
         except Exception:
             pass
 
-    # ============ TẦNG 2: Datamuse ============
     try:
         url = f"https://api.datamuse.com/words?sp={urllib.parse.quote(clean)}&md=pdrs&max=5"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -577,7 +614,6 @@ def fetch_english_v4(word):
     except Exception:
         pass
 
-    # ============ TẦNG 3: dictionaryapi.dev (chỉ khi IPA vẫn trống) ============
     if not result['ipa']:
         try:
             url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{urllib.parse.quote(clean)}"
@@ -596,7 +632,6 @@ def fetch_english_v4(word):
         except Exception:
             pass
 
-    # ============ Synonyms ============
     try:
         url = f"https://api.datamuse.com/words?rel_syn={urllib.parse.quote(clean)}&max=8"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -606,7 +641,6 @@ def fetch_english_v4(word):
     except Exception:
         pass
 
-    # ============ Suggestion ============
     try:
         url = f"https://api.datamuse.com/sug?s={urllib.parse.quote(clean)}&max=1"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -701,15 +735,23 @@ def update_review_sm2(word_id, quality, ease, interval, reps):
     log_review()
 
 
-st.title("📚 Flashcard Pro — Anh & Trung")
-
+# ==========================================
+# SESSION STATE INIT
+# ==========================================
 if 'show_answer' not in st.session_state:
     st.session_state.show_answer = False
 
 for _k in ['auto_meaning', 'auto_pronun', 'auto_pos', 'auto_related',
-           'auto_example', 'auto_synonyms', 'suggestion', 'word_input']:
+           'auto_example', 'auto_synonyms', 'word_input']:
     if _k not in st.session_state:
-        st.session_state[_k] = "" if _k != 'suggestion' else None
+        st.session_state[_k] = ""
+
+if 'suggestion' not in st.session_state:
+    st.session_state.suggestion = None
+if 'pending_reset' not in st.session_state:
+    st.session_state.pending_reset = False
+if 'pending_suggest' not in st.session_state:
+    st.session_state.pending_suggest = ""
 
 
 def _clear_auto_fields():
@@ -718,6 +760,8 @@ def _clear_auto_fields():
         st.session_state[k] = ""
     st.session_state.suggestion = None
 
+
+st.title("📚 Flashcard Pro — Anh & Trung")
 
 with st.sidebar:
     st.markdown("## 🎯 MENU CHÍNH")
@@ -758,8 +802,19 @@ with st.sidebar:
     st.caption("💡 Mẹo: Ôn tập mỗi ngày để không quên nhé!")
 
 
+# ==========================================
+# TRANG: THÊM TỪ MỚI
+# ==========================================
 if choice == "➕ Thêm từ mới":
     st.header("✨ Thêm từ vựng mới")
+
+    if st.session_state.pending_reset:
+        st.session_state.word_input = ""
+        st.session_state.pending_reset = False
+
+    if st.session_state.pending_suggest:
+        st.session_state.word_input = st.session_state.pending_suggest
+        st.session_state.pending_suggest = ""
 
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -809,7 +864,7 @@ if choice == "➕ Thêm từ mới":
     if sug_word and language == "Tiếng Anh":
         st.warning(f"💡 Có phải bạn muốn gõ: **{sug_word}**?")
         if st.button(f"👉 Sửa thành '{sug_word}' và dịch lại"):
-            st.session_state.word_input = sug_word
+            st.session_state.pending_suggest = sug_word
             _clear_auto_fields()
             st.rerun()
 
@@ -850,7 +905,7 @@ if choice == "➕ Thêm từ mới":
             add_word(word, language, pronunciation, meaning, example, pos, related_words, synonyms)
             st.toast(f"💾 Đã lưu: {word}", icon="✅")
             _clear_auto_fields()
-            st.session_state.word_input = ""
+            st.session_state.pending_reset = True
             st.rerun()
         else:
             st.error("Vui lòng điền Từ vựng và Nghĩa!")
@@ -895,6 +950,9 @@ if choice == "➕ Thêm từ mới":
                           file_name="flashcard_template.csv", mime="text/csv")
 
 
+# ==========================================
+# TRANG: ÔN TẬP
+# ==========================================
 elif choice == "🧠 Ôn tập Flashcard":
     st.header("🧠 Ôn tập hàng ngày")
 
@@ -994,6 +1052,9 @@ elif choice == "🧠 Ôn tập Flashcard":
         st.success("Tuyệt vời! Bạn đã hoàn thành toàn bộ bài học hôm nay. 🎉")
 
 
+# ==========================================
+# TRANG: LUYỆN TẬP
+# ==========================================
 elif choice == "🎮 Luyện tập":
     st.header("🎮 Luyện tập")
     df = get_all_words()
@@ -1148,6 +1209,9 @@ elif choice == "🎮 Luyện tập":
         st.rerun()
 
 
+# ==========================================
+# TRANG: KHO TỪ VỰNG
+# ==========================================
 elif choice == "🗂️ Kho từ vựng":
     st.header("🗂️ Kho từ vựng")
     df = get_all_words()
@@ -1204,6 +1268,9 @@ elif choice == "🗂️ Kho từ vựng":
                                 st.audio(audio_bytes, format='audio/mp3')
 
 
+# ==========================================
+# TRANG: THỐNG KÊ
+# ==========================================
 elif choice == "📊 Thống kê":
     st.header("📊 Thống kê")
     df = get_all_words()
